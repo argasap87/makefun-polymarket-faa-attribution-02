@@ -59,6 +59,8 @@ const SIGMA_MULTIPLIER = 0.9;
 /** Sigma floor / cap, in price units per square-root minute. */
 const SIGMA_FLOOR = 0.0003;
 const SIGMA_CAP = 0.004;
+/** The house baseline's fixed sigma: the fallback a short history shrinks toward. */
+const HOUSE_SIGMA = 0.0025;
 
 interface CaseMarket {
   id: string;
@@ -78,6 +80,11 @@ const price6 = (x: number): number => Math.round(Math.min(1, Math.max(0, x)) * 1
  * Per-market sigma: RMS of the winsorized one-minute changes over the
  * last VOL_WINDOW_MINUTES minutes, scaled and clipped to [floor, cap].
  * A market with fewer than 2 prices, or no movement at all, gets the floor.
+ * With a short history (fewer than VOL_WINDOW_MINUTES changes — a market
+ * that has only just started trading) the estimate is shrunk toward the
+ * house baseline sigma in proportion to the missing window, instead of
+ * trusting a handful of moves: with a full window this is exactly the
+ * old formula, so the practice scores are unchanged.
  */
 function sigmaOf(prices: number[]): number {
   const n = prices.length;
@@ -90,7 +97,9 @@ function sigmaOf(prices: number[]): number {
     sumSq += wd * wd;
   }
   const rms = Math.sqrt(sumSq / w);
-  return Math.min(SIGMA_CAP, Math.max(SIGMA_FLOOR, SIGMA_MULTIPLIER * rms));
+  const frac = w / VOL_WINDOW_MINUTES;
+  const blended = frac * SIGMA_MULTIPLIER * rms + (1 - frac) * HOUSE_SIGMA;
+  return Math.min(SIGMA_CAP, Math.max(SIGMA_FLOOR, blended));
 }
 
 /** The forecast of one market: horizon rows of the five quantiles around its last price. */
